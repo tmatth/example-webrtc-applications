@@ -11,7 +11,7 @@ import (
 
 	janus "github.com/notedit/janus-go"
 	"github.com/pion/webrtc/v2"
-	"github.com/pion/webrtc/v2/pkg/media"
+	"github.com/at-wat/ebml-go/mkvcore"
 	"github.com/at-wat/ebml-go/webm"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
@@ -19,30 +19,16 @@ import (
 	"github.com/pion/rtcp"
 )
 
+const (
+	audioMaxLate = 32
+	videoMaxLate = 256
+)
+
 var (
 	audioWriter, videoWriter       webm.BlockWriteCloser
 	audioBuilder, videoBuilder     *samplebuilder.SampleBuilder
 	audioTimestamp, videoTimestamp uint32
 )
-
-func saveToDisk(i media.Writer, track *webrtc.Track) {
-	defer func() {
-		if err := i.Close(); err != nil {
-			panic(err)
-		}
-	}()
-
-	for {
-		packet, err := track.ReadRTP()
-		if err != nil {
-			panic(err)
-		}
-
-		if err := i.WriteRTP(packet); err != nil {
-			panic(err)
-		}
-	}
-}
 
 func watchHandle(handle *janus.Handle) {
 	// wait for event
@@ -79,32 +65,63 @@ func startFFmpeg(width, height int) {
 		}
 	}()
 
-	ws, err := webm.NewSimpleBlockWriter(ffmpegIn,
-		[]webm.TrackEntry{
-			{
-				Name:            "Audio",
-				TrackNumber:     1,
-				TrackUID:        12345,
-				CodecID:         "A_OPUS",
-				TrackType:       2,
-				DefaultDuration: 20000000,
-				Audio: &webm.Audio{
-					SamplingFrequency: 48000.0,
-					Channels:          2,
-				},
-			}, {
-				Name:            "Video",
-				TrackNumber:     2,
-				TrackUID:        67890,
-				CodecID:         "V_MPEG4/ISO/AVC",
-				TrackType:       1,
-				DefaultDuration: 33333333,
-				Video: &webm.Video{
-					PixelWidth:  uint64(width),
-					PixelHeight: uint64(height),
-				},
-			},
-		})
+	header := webm.DefaultEBMLHeader
+	isWebm := false
+	if !isWebm {
+		h := *header
+		h.DocType = "matroska"
+		header = &h
+	}
+
+	interceptor, err := mkvcore.NewMultiTrackBlockSorter(
+		// must be larger than the samplebuilder's MaxLate.
+		mkvcore.WithMaxDelayedPackets(videoMaxLate+16),
+		mkvcore.WithSortRule(mkvcore.BlockSorterWriteOutdated),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	audioEntry := webm.TrackEntry{
+		Name:        "Audio",
+		TrackNumber: 1,
+		CodecID:     "A_OPUS",
+		TrackType:   2,
+		Audio: &webm.Audio{
+			SamplingFrequency: float64(48000),
+			Channels:          uint64(2),
+		},
+	}
+
+	videoEntry := webm.TrackEntry{
+		Name:        "Video",
+		TrackNumber: 2,
+		CodecID:     "V_MPEG4/ISO/AVC",
+		TrackType:   1,
+		Video: &webm.Video{
+			PixelWidth:  uint64(width),
+			PixelHeight: uint64(height),
+		},
+	}
+	var desc []mkvcore.TrackDescription
+
+	desc = append(desc,
+		mkvcore.TrackDescription{
+			TrackNumber: 1,
+			TrackEntry:  audioEntry,
+		},
+	)
+	desc = append(desc,
+		mkvcore.TrackDescription{
+			TrackNumber: 2,
+			TrackEntry:  videoEntry,
+		},
+	)
+
+	ws, err := mkvcore.NewSimpleBlockWriter(ffmpegIn, desc,
+		mkvcore.WithEBMLHeader(header),
+		mkvcore.WithSegmentInfo(webm.DefaultSegmentInfo),
+		mkvcore.WithBlockInterceptor(interceptor))
 	if err != nil {
 		panic(err)
 	}
@@ -473,8 +490,8 @@ func main() {
 			panic(err)
 		}
 
-		audioBuilder = samplebuilder.New(10, &codecs.OpusPacket{})
-		videoBuilder = samplebuilder.New(10, &codecs.H264Packet{})
+		audioBuilder = samplebuilder.New(audioMaxLate, &codecs.OpusPacket{})
+		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.H264Packet{})
 
 		// Create a new RTCPeerConnection
 		var peerConnection *webrtc.PeerConnection
