@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -36,15 +37,15 @@ func watchHandle(handle *janus.Handle) {
 		msg := <-handle.Events
 		switch msg := msg.(type) {
 		case *janus.SlowLinkMsg:
-			fmt.Print("SlowLinkMsg type ", handle.ID)
+			fmt.Fprintln(os.Stderr, "SlowLinkMsg type ", handle.ID)
 		case *janus.MediaMsg:
-			fmt.Print("MediaEvent type", msg.Type, " receiving ", msg.Receiving)
+			fmt.Fprintln(os.Stderr, "MediaEvent type", msg.Type, " receiving ", msg.Receiving)
 		case *janus.WebRTCUpMsg:
-			fmt.Print("WebRTCUp type ", handle.ID)
+			fmt.Fprintln(os.Stderr, "WebRTCUp type ", handle.ID)
 		case *janus.HangupMsg:
-			fmt.Print("HangupEvent type ", handle.ID)
+			fmt.Fprintln(os.Stderr, "HangupEvent type ", handle.ID)
 		case *janus.EventMsg:
-			fmt.Printf("EventMsg %+v", msg.Plugindata.Data)
+			fmt.Fprintf(os.Stderr, "EventMsg %+v\n", msg.Plugindata.Data)
 		}
 	}
 }
@@ -61,7 +62,7 @@ func startFFmpeg(videoCodec string, width, height int) {
 	go func() {
 		scanner := bufio.NewScanner(ffmpegOut)
 		for scanner.Scan() {
-			fmt.Println(scanner.Text())
+			fmt.Fprintln(os.Stderr, scanner.Text())
 		}
 	}()
 
@@ -153,7 +154,7 @@ func startFFmpeg(videoCodec string, width, height int) {
 		videoWriter = ws[1]
 	}
 
-	fmt.Printf("WebM saver has started with video width=%d, height=%d\n", width, height)
+	fmt.Fprintf(os.Stderr, "WebM saver has started with video width=%d, height=%d\n", width, height)
 }
 
 // Parse Opus audio and Write to WebM
@@ -396,7 +397,7 @@ func KeyframeDimensions(codec string, packet *rtp.Packet) (uint32, uint32) {
 		}
 		return w, h
 	} else if strings.EqualFold(codec, "video/h264") {
-		fmt.Println("FIXME: parse SPS or find some lib that does?")
+		fmt.Fprintln(os.Stderr, "FIXME: parse SPS or find some lib that does?")
 		return 0, 0
 	} else {
 		return 0, 0
@@ -458,7 +459,7 @@ func pushH264(rtpPacket *rtp.Packet) {
 			/* FIXME: actually get these from bitstream */
 			width, height := KeyframeDimensions("video/h264", rtpPacket)
 
-			fmt.Println("Got H.264 key frame", width, "x", height)
+			fmt.Fprintln(os.Stderr, "Got H.264 key frame", width, "x", height)
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
 				startFFmpeg("H264", int(width), int(height))
@@ -582,7 +583,7 @@ func main() {
 		}
 
 		peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-			fmt.Printf("Connection State has changed %s \n", connectionState.String())
+			fmt.Fprintf(os.Stderr, "Connection State has changed %s\n", connectionState.String())
 		})
 
 		peerConnection.OnTrack(func(track *webrtc.Track, receiver *webrtc.RTPReceiver) {
@@ -593,12 +594,12 @@ func main() {
 				for range ticker.C {
 					rtcpSendErr := peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: track.SSRC()}})
 					if rtcpSendErr != nil {
-						fmt.Println(rtcpSendErr)
+						fmt.Fprintln(os.Stderr, rtcpSendErr)
 					}
 				}
 			}()
 	
-			fmt.Printf("Track has started, of type %d: %s \n", track.PayloadType(), track.Codec().Name)
+			fmt.Fprintf(os.Stderr, "Track has started, of type %d: %s \n", track.PayloadType(), track.Codec().Name)
 			for {
 				// Read RTP packets being sent to Pion
 				rtp, readErr := track.ReadRTP()
@@ -619,7 +620,7 @@ func main() {
 					} else if track.Codec().Name == "VP8" {
 						pushVP8(rtp)
 					} else {
-						fmt.Println("Unexpected video codec", track.Codec().Name)
+						fmt.Fprintln(os.Stderr, "Unexpected video codec", track.Codec().Name)
 					}
 				}
 			}
