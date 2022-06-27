@@ -49,7 +49,7 @@ func watchHandle(handle *janus.Handle) {
 	}
 }
 
-func startFFmpeg(width, height int) {
+func startFFmpeg(videoCodec string, width, height int) {
 	// Create a ffmpeg process that consumes MKV via stdin, and broadcasts out to Twitch
 	ffmpeg := exec.Command("ffmpeg", "-y", "-re", "-i", "pipe:0", "-c:v", "libx264", "-preset", "veryfast", "-maxrate", "3000k", "-bufsize", "6000k", "-pix_fmt", "yuv420p", "-g", "50", "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-ar", "44100", "-f", "matroska", "foobar.mkv") //nolint
 	ffmpegIn, _ := ffmpeg.StdinPipe()
@@ -66,7 +66,7 @@ func startFFmpeg(width, height int) {
 	}()
 
 	header := webm.DefaultEBMLHeader
-	isWebm := false
+	isWebm := videoCodec == "VP9" || videoCodec == "VP8"
 	if !isWebm {
 		h := *header
 		h.DocType = "matroska"
@@ -93,10 +93,22 @@ func startFFmpeg(width, height int) {
 		},
 	}
 
+	var videoCodecID string;
+	if videoCodec == "H264" {
+		videoCodecID = "V_MPEG4/ISO/AVC"
+	} else if videoCodec == "VP9" {
+		videoCodecID = "V_VP9"
+	} else if videoCodec == "VP8" {
+		videoCodecID = "V_VP8"
+	} else {
+		panic("Unexpected video codec")
+	}
+
+
 	videoEntry := webm.TrackEntry{
 		Name:        "Video",
 		TrackNumber: 2,
-		CodecID:     "V_MPEG4/ISO/AVC",
+		CodecID:     videoCodecID,
 		TrackType:   1,
 		Video: &webm.Video{
 			PixelWidth:  uint64(width),
@@ -118,21 +130,37 @@ func startFFmpeg(width, height int) {
 		},
 	)
 
-	ws, err := mkvcore.NewSimpleBlockWriter(ffmpegIn, desc,
-		mkvcore.WithEBMLHeader(header),
-		mkvcore.WithSegmentInfo(webm.DefaultSegmentInfo),
-		mkvcore.WithBlockInterceptor(interceptor))
-	if err != nil {
-		panic(err)
+	if isWebm {
+		tracks := []webm.TrackEntry{audioEntry, videoEntry}
+		ws, err := webm.NewSimpleBlockWriter(ffmpegIn, tracks,
+			mkvcore.WithEBMLHeader(header),
+			mkvcore.WithSegmentInfo(webm.DefaultSegmentInfo),
+			mkvcore.WithBlockInterceptor(interceptor))
+		if err != nil {
+			panic(err)
+		}
+		audioWriter = ws[0]
+		videoWriter = ws[1]
+	} else {
+		ws, err := mkvcore.NewSimpleBlockWriter(ffmpegIn, desc,
+			mkvcore.WithEBMLHeader(header),
+			mkvcore.WithSegmentInfo(webm.DefaultSegmentInfo),
+			mkvcore.WithBlockInterceptor(interceptor))
+		if err != nil {
+			panic(err)
+		}
+		audioWriter = ws[0]
+		videoWriter = ws[1]
 	}
 
 	fmt.Printf("WebM saver has started with video width=%d, height=%d\n", width, height)
-	audioWriter = ws[0]
-	videoWriter = ws[1]
 }
 
 // Parse Opus audio and Write to WebM
 func pushOpus(rtpPacket *rtp.Packet) {
+	if audioBuilder == nil {
+		audioBuilder = samplebuilder.New(audioMaxLate, &codecs.OpusPacket{})
+	}
 	audioBuilder.Push(rtpPacket)
 
 	for {
@@ -377,6 +405,10 @@ func KeyframeDimensions(codec string, packet *rtp.Packet) (uint32, uint32) {
 
 // Parse VP8 video and Write to WebM
 func pushVP8(rtpPacket *rtp.Packet) {
+	if videoBuilder == nil {
+		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.VP8Packet{})
+	}
+
 	videoBuilder.Push(rtpPacket)
 
 	for {
@@ -394,7 +426,7 @@ func pushVP8(rtpPacket *rtp.Packet) {
 
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startFFmpeg(width, height)
+				startFFmpeg("VP8", width, height)
 			}
 		}
 		if videoWriter != nil {
@@ -407,8 +439,11 @@ func pushVP8(rtpPacket *rtp.Packet) {
 	}
 }
 
-// Parse H264 video and Write to WebM
+// Parse H264 video and Write to MKV
 func pushH264(rtpPacket *rtp.Packet) {
+	if videoBuilder == nil {
+		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.H264Packet{})
+	}
 	videoBuilder.Push(rtpPacket)
 
 	for {
@@ -426,7 +461,42 @@ func pushH264(rtpPacket *rtp.Packet) {
 			fmt.Println("Got H.264 key frame", width, "x", height)
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startFFmpeg(int(width), int(height))
+				startFFmpeg("H264", int(width), int(height))
+			}
+		}
+		if videoWriter != nil {
+			videoTimestamp += sample.Samples
+			t := videoTimestamp / 90
+			if _, err := videoWriter.Write(videoKeyframe, int64(t), sample.Data); err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+
+// Parse VP9 video and Write to WebM
+func pushVP9(rtpPacket *rtp.Packet) {
+	if videoBuilder == nil {
+		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.VP9Packet{})
+	}
+	videoBuilder.Push(rtpPacket)
+
+	for {
+		sample := videoBuilder.Pop()
+		if sample == nil {
+			return
+		}
+		// Read VP9 header.
+		videoKeyframe := (sample.Data[0]&0x1 == 0)
+		if videoKeyframe {
+			// Keyframe has frame information.
+			raw := uint(sample.Data[6]) | uint(sample.Data[7])<<8 | uint(sample.Data[8])<<16 | uint(sample.Data[9])<<24
+			width := int(raw & 0x3FFF)
+			height := int((raw >> 16) & 0x3FFF)
+
+			if videoWriter == nil || audioWriter == nil {
+				// Initialize WebM saver using received frame size.
+				startFFmpeg("VP9", width, height)
 			}
 		}
 		if videoWriter != nil {
@@ -473,7 +543,7 @@ func main() {
 	// Watch the second stream
 	msg, err := handle.Message(map[string]interface{}{
 		"request": "watch",
-		"id":      10,
+		"id":      10, // FIXME: 1 is vp8, 5: is vp9 and 10 is h264
 	}, nil)
 	if err != nil {
 		panic(err)
@@ -489,9 +559,6 @@ func main() {
 		if err = mediaEngine.PopulateFromSDP(offer); err != nil {
 			panic(err)
 		}
-
-		audioBuilder = samplebuilder.New(audioMaxLate, &codecs.OpusPacket{})
-		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.H264Packet{})
 
 		// Create a new RTCPeerConnection
 		var peerConnection *webrtc.PeerConnection
@@ -545,7 +612,15 @@ func main() {
 				case webrtc.RTPCodecTypeAudio:
 					pushOpus(rtp)
 				case webrtc.RTPCodecTypeVideo:
-					pushH264(rtp)
+					if track.Codec().Name == "H264" {
+						pushH264(rtp)
+					} else if track.Codec().Name == "VP9" {
+						pushVP9(rtp)
+					} else if track.Codec().Name == "VP8" {
+						pushVP8(rtp)
+					} else {
+						fmt.Println("Unexpected video codec", track.Codec().Name)
+					}
 				}
 			}
 		})
