@@ -534,12 +534,14 @@ func main() {
 	go watchHandle(handle)
 
 	// Get streaming list
-	_, err = handle.Request(map[string]interface{}{
+	listMsg, err := handle.Request(map[string]interface{}{
 		"request": "list",
 	})
 	if err != nil {
 		panic(err)
 	}
+
+	fmt.Fprintln(os.Stderr, "Got data", listMsg.PluginData.Data["list"])
 
 	// Watch the second stream
 	msg, err := handle.Message(map[string]interface{}{
