@@ -49,9 +49,9 @@ func watchHandle(handle *janus.Handle) {
 	}
 }
 
-func startOutput(videoCodec string, width uint32, height uint32) {
+func startOutput(videoMimeType string, width uint32, height uint32) {
 	header := webm.DefaultEBMLHeader
-	isWebm := videoCodec == "VP9" || videoCodec == "VP8"
+	isWebm := videoMimeType == "video/vp9" || videoMimeType == "video/vp8"
 	if !isWebm {
 		h := *header
 		h.DocType = "matroska"
@@ -79,11 +79,11 @@ func startOutput(videoCodec string, width uint32, height uint32) {
 	}
 
 	var videoCodecID string;
-	if videoCodec == "H264" {
+	if videoMimeType == "video/h264" {
 		videoCodecID = "V_MPEG4/ISO/AVC"
-	} else if videoCodec == "VP9" {
+	} else if videoMimeType == "video/vp9" {
 		videoCodecID = "V_VP9"
-	} else if videoCodec == "VP8" {
+	} else if videoMimeType == "video/vp8" {
 		videoCodecID = "V_VP8"
 	} else {
 		panic("Unexpected video codec")
@@ -390,6 +390,7 @@ func KeyframeDimensions(codec string, packet *rtp.Packet) (uint32, uint32) {
 
 // Parse VP8 video and Write to WebM
 func pushVP8(rtpPacket *rtp.Packet) {
+	const videoMimeType = "video/vp8"
 	if videoBuilder == nil {
 		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.VP8Packet{})
 	}
@@ -402,14 +403,14 @@ func pushVP8(rtpPacket *rtp.Packet) {
 			return
 		}
 		// Read VP8 header.
-		videoKeyframe, _ := Keyframe("video/vp8", rtpPacket)
+		videoKeyframe, _ := Keyframe(videoMimeType, rtpPacket)
 		if videoKeyframe {
 			// Keyframe has frame information.
-			width, height := KeyframeDimensions("video/vp8", rtpPacket)
+			width, height := KeyframeDimensions(videoMimeType, rtpPacket)
 
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startOutput("VP8", width, height)
+				startOutput(videoMimeType, width, height)
 			}
 		}
 		if videoWriter != nil {
@@ -424,6 +425,7 @@ func pushVP8(rtpPacket *rtp.Packet) {
 
 // Parse H264 video and Write to MKV
 func pushH264(rtpPacket *rtp.Packet) {
+	const videoMimeType = "video/h264"
 	if videoBuilder == nil {
 		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.H264Packet{})
 	}
@@ -435,16 +437,16 @@ func pushH264(rtpPacket *rtp.Packet) {
 			return
 		}
 		// Read H264 header.
-		videoKeyframe, videoKeyframeKnown := Keyframe("video/h264", rtpPacket)
+		videoKeyframe, videoKeyframeKnown := Keyframe(videoMimeType, rtpPacket)
 		if videoKeyframe && videoKeyframeKnown{
 			// Keyframe has frame information.
 			/* FIXME: actually get these from bitstream */
-			width, height := KeyframeDimensions("video/h264", rtpPacket)
+			width, height := KeyframeDimensions(videoMimeType, rtpPacket)
 
 			fmt.Fprintln(os.Stderr, "Got H.264 key frame", width, "x", height)
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startOutput("H264", width, height)
+				startOutput(videoMimeType, width, height)
 			}
 		}
 		if videoWriter != nil {
@@ -459,6 +461,7 @@ func pushH264(rtpPacket *rtp.Packet) {
 
 // Parse VP9 video and Write to WebM
 func pushVP9(rtpPacket *rtp.Packet) {
+	const videoMimeType = "video/vp9"
 	if videoBuilder == nil {
 		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.VP9Packet{})
 	}
@@ -470,14 +473,14 @@ func pushVP9(rtpPacket *rtp.Packet) {
 			return
 		}
 		// Read VP9 header.
-		videoKeyframe, _ := Keyframe("video/vp9", rtpPacket)
+		videoKeyframe, _ := Keyframe(videoMimeType, rtpPacket)
 		if videoKeyframe {
 			// Keyframe has frame information.
-			width, height := KeyframeDimensions("video/vp9", rtpPacket)
+			width, height := KeyframeDimensions(videoMimeType, rtpPacket)
 
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startOutput("VP9", width, height)
+				startOutput(videoMimeType, width, height)
 			}
 		}
 		if videoWriter != nil {
