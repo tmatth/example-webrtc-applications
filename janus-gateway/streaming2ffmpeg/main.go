@@ -2,11 +2,9 @@ package main
 
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -50,22 +48,7 @@ func watchHandle(handle *janus.Handle) {
 	}
 }
 
-func startFFmpeg(videoCodec string, width, height int) {
-	// Create a ffmpeg process that consumes MKV via stdin, and saves to disk
-	ffmpeg := exec.Command("ffmpeg", "-hide_banner", "-y", "-re", "-i", "pipe:0", "-c:v", "copy", "-c:a", "copy", "-f", "matroska", "foobar.mkv") //nolint
-	ffmpegIn, _ := ffmpeg.StdinPipe()
-	ffmpegOut, _ := ffmpeg.StderrPipe()
-	if err := ffmpeg.Start(); err != nil {
-		panic(err)
-	}
-
-	go func() {
-		scanner := bufio.NewScanner(ffmpegOut)
-		for scanner.Scan() {
-			fmt.Fprintln(os.Stderr, scanner.Text())
-		}
-	}()
-
+func startOutput(videoCodec string, width, height int) {
 	header := webm.DefaultEBMLHeader
 	isWebm := videoCodec == "VP9" || videoCodec == "VP8"
 	if !isWebm {
@@ -133,7 +116,7 @@ func startFFmpeg(videoCodec string, width, height int) {
 
 	if isWebm {
 		tracks := []webm.TrackEntry{audioEntry, videoEntry}
-		ws, err := webm.NewSimpleBlockWriter(ffmpegIn, tracks,
+		ws, err := webm.NewSimpleBlockWriter(os.Stdout, tracks,
 			mkvcore.WithEBMLHeader(header),
 			mkvcore.WithSegmentInfo(webm.DefaultSegmentInfo),
 			mkvcore.WithBlockInterceptor(interceptor))
@@ -143,7 +126,7 @@ func startFFmpeg(videoCodec string, width, height int) {
 		audioWriter = ws[0]
 		videoWriter = ws[1]
 	} else {
-		ws, err := mkvcore.NewSimpleBlockWriter(ffmpegIn, desc,
+		ws, err := mkvcore.NewSimpleBlockWriter(os.Stdout, desc,
 			mkvcore.WithEBMLHeader(header),
 			mkvcore.WithSegmentInfo(webm.DefaultSegmentInfo),
 			mkvcore.WithBlockInterceptor(interceptor))
@@ -427,7 +410,7 @@ func pushVP8(rtpPacket *rtp.Packet) {
 
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startFFmpeg("VP8", width, height)
+				startOutput("VP8", width, height)
 			}
 		}
 		if videoWriter != nil {
@@ -462,7 +445,7 @@ func pushH264(rtpPacket *rtp.Packet) {
 			fmt.Fprintln(os.Stderr, "Got H.264 key frame", width, "x", height)
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startFFmpeg("H264", int(width), int(height))
+				startOutput("H264", int(width), int(height))
 			}
 		}
 		if videoWriter != nil {
@@ -497,7 +480,7 @@ func pushVP9(rtpPacket *rtp.Packet) {
 
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
-				startFFmpeg("VP9", width, height)
+				startOutput("VP9", width, height)
 			}
 		}
 		if videoWriter != nil {
