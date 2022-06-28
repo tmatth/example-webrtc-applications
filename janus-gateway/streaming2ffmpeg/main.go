@@ -52,7 +52,7 @@ func watchHandle(handle *janus.Handle) {
 
 func startFFmpeg(videoCodec string, width, height int) {
 	// Create a ffmpeg process that consumes MKV via stdin, and saves to disk
-	ffmpeg := exec.Command("ffmpeg", "-y", "-re", "-i", "pipe:0", "-c:v", "copy", "-c:a", "copy", "-f", "matroska", "foobar.mkv") //nolint
+	ffmpeg := exec.Command("ffmpeg", "-hide_banner", "-y", "-re", "-i", "pipe:0", "-c:v", "copy", "-c:a", "copy", "-f", "matroska", "foobar.mkv") //nolint
 	ffmpegIn, _ := ffmpeg.StdinPipe()
 	ffmpegOut, _ := ffmpeg.StderrPipe()
 	if err := ffmpeg.Start(); err != nil {
