@@ -1,6 +1,5 @@
 package main
 
-
 import (
 	"flag"
 	"fmt"
@@ -11,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	janus "github.com/notedit/janus-go"
-	"github.com/pion/webrtc/v2"
 	"github.com/at-wat/ebml-go/mkvcore"
 	"github.com/at-wat/ebml-go/webm"
+	janus "github.com/notedit/janus-go"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
+	"github.com/pion/webrtc/v2"
 	"github.com/pion/webrtc/v2/pkg/media/samplebuilder"
-	"github.com/pion/rtcp"
 )
 
 const (
@@ -80,7 +79,7 @@ func startOutput(videoMimeType string, width uint32, height uint32) {
 		},
 	}
 
-	var videoCodecID string;
+	var videoCodecID string
 	if videoMimeType == "video/h264" {
 		videoCodecID = "V_MPEG4/ISO/AVC"
 	} else if videoMimeType == "video/vp9" {
@@ -90,7 +89,6 @@ func startOutput(videoMimeType string, width uint32, height uint32) {
 	} else {
 		panic("Unexpected video codec")
 	}
-
 
 	videoEntry := webm.TrackEntry{
 		Name:        "Video",
@@ -440,7 +438,7 @@ func pushH264(rtpPacket *rtp.Packet) {
 		}
 		// Read H264 header.
 		videoKeyframe, videoKeyframeKnown := Keyframe(videoMimeType, rtpPacket)
-		if videoKeyframe && videoKeyframeKnown{
+		if videoKeyframe && videoKeyframeKnown {
 			// Keyframe has frame information.
 			/* FIXME: actually get these from bitstream */
 			width, height := KeyframeDimensions(videoMimeType, rtpPacket)
@@ -597,7 +595,7 @@ func main() {
 					}
 				}
 			}()
-	
+
 			fmt.Fprintf(os.Stderr, "Track has started, of type %d: %s \n", track.PayloadType(), track.Codec().Name)
 			for {
 				// Read RTP packets being sent to Pion
