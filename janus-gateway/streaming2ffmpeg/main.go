@@ -339,7 +339,7 @@ func Keyframe(codec string, packet *rtp.Packet) (bool, bool) {
 	return false, false
 }
 
-func KeyframeDimensions(codec string, packet *rtp.Packet) (uint32, uint32) {
+func keyframeDimensions(codec string, packet *rtp.Packet) (uint32, uint32) {
 	if strings.EqualFold(codec, "video/vp8") {
 		var vp8 codecs.VP8Packet
 		_, err := vp8.Unmarshal(packet.Payload)
@@ -406,7 +406,7 @@ func pushVP8(rtpPacket *rtp.Packet) {
 		videoKeyframe, _ := Keyframe(videoMimeType, rtpPacket)
 		if videoKeyframe {
 			// Keyframe has frame information.
-			width, height := KeyframeDimensions(videoMimeType, rtpPacket)
+			width, height := keyframeDimensions(videoMimeType, rtpPacket)
 
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
@@ -441,7 +441,7 @@ func pushH264(rtpPacket *rtp.Packet) {
 		if videoKeyframe && videoKeyframeKnown {
 			// Keyframe has frame information.
 			/* FIXME: actually get these from bitstream */
-			width, height := KeyframeDimensions(videoMimeType, rtpPacket)
+			width, height := keyframeDimensions(videoMimeType, rtpPacket)
 
 			fmt.Fprintln(os.Stderr, "Got H.264 key frame", width, "x", height)
 			if videoWriter == nil || audioWriter == nil {
@@ -495,21 +495,21 @@ func pushVP9(rtpPacket *rtp.Packet) {
 
 func main() {
 
-	var streamUrl string
-	flag.StringVar(&streamUrl, "url", "", "wss stream URL")
+	var streamURL string
+	flag.StringVar(&streamURL, "url", "", "wss stream URL")
 	flag.Parse()
 
-	u, err := url.Parse(streamUrl)
+	u, err := url.Parse(streamURL)
 	if err != nil {
 		panic(err)
 	}
 	// extract last slug from path (which is free of query params or trailing parameters)
-	streamId := path.Base(u.Path)
+	streamID := path.Base(u.Path)
 
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
 	// Janus
-	gateway, err := janus.Connect(streamUrl)
+	gateway, err := janus.Connect(streamURL)
 	if err != nil {
 		panic(err)
 	}
@@ -541,7 +541,7 @@ func main() {
 	// Watch the second stream
 	msg, err := handle.Message(map[string]interface{}{
 		"request": "watch",
-		"id":      streamId,
+		"id":      streamID,
 	}, nil)
 	if err != nil {
 		panic(err)
