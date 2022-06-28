@@ -2,6 +2,7 @@ package main
 
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -494,6 +495,11 @@ func pushVP9(rtpPacket *rtp.Packet) {
 }
 
 func main() {
+
+	 // FIXME: 1 is vp8, 5: is vp9 and 10 is h264
+	streamId := flag.Int("id", 10, "integer stream id")
+	flag.Parse()
+
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
 	// Janus
@@ -529,7 +535,7 @@ func main() {
 	// Watch the second stream
 	msg, err := handle.Message(map[string]interface{}{
 		"request": "watch",
-		"id":      10, // FIXME: 1 is vp8, 5: is vp9 and 10 is h264
+		"id":      streamId,
 	}, nil)
 	if err != nil {
 		panic(err)
