@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -495,14 +497,21 @@ func pushVP9(rtpPacket *rtp.Packet) {
 
 func main() {
 
-	 // FIXME: 1 is vp8, 5: is vp9 and 10 is h264
-	streamId := flag.Int("id", 10, "integer stream id")
+	var streamUrl string
+	flag.StringVar(&streamUrl, "url", "", "wss stream URL")
 	flag.Parse()
+
+	u, err := url.Parse(streamUrl)
+	if err != nil {
+		panic(err)
+	}
+	// extract last slug from path (which is free of query params or trailing parameters)
+	streamId := path.Base(u.Path)
 
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
 	// Janus
-	gateway, err := janus.Connect("ws://localhost:8188/")
+	gateway, err := janus.Connect(streamUrl)
 	if err != nil {
 		panic(err)
 	}
