@@ -82,6 +82,8 @@ func startOutput(videoMimeType string, width uint32, height uint32) {
 	var videoCodecID string
 	if videoMimeType == "video/h264" {
 		videoCodecID = "V_MPEG4/ISO/AVC"
+	} else if videoMimeType == "video/av1" {
+		videoCodecID = "V_AV1"
 	} else if videoMimeType == "video/vp9" {
 		videoCodecID = "V_VP9"
 	} else if videoMimeType == "video/vp8" {
@@ -476,7 +478,45 @@ func pushVP9(rtpPacket *rtp.Packet) {
 		videoKeyframe, _ := Keyframe(videoMimeType, rtpPacket)
 		if videoKeyframe {
 			// Keyframe has frame information.
-			width, height := KeyframeDimensions(videoMimeType, rtpPacket)
+			width, height := keyframeDimensions(videoMimeType, rtpPacket)
+
+			if videoWriter == nil || audioWriter == nil {
+				// Initialize WebM saver using received frame size.
+				startOutput(videoMimeType, width, height)
+			}
+		}
+		if videoWriter != nil {
+			videoTimestamp += sample.Samples
+			t := videoTimestamp / 90
+			if _, err := videoWriter.Write(videoKeyframe, int64(t), sample.Data); err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+
+// Parse AV1 video and Write to WebM
+func pushAV1(rtpPacket *rtp.Packet) {
+	const videoMimeType = "video/av1"
+
+	/* FIXME: Update to pion/rtp/v2 to get AV1Packet
+	if videoBuilder == nil {
+		videoBuilder = samplebuilder.New(videoMaxLate, &codecs.AV1Packet{})
+	}
+	videoBuilder.Push(rtpPacket)
+	*/
+	panic("AV1 not supported with this version of pion/rtp, please upgrade")
+
+	for {
+		sample := videoBuilder.Pop()
+		if sample == nil {
+			return
+		}
+		// Read AV1 header.
+		videoKeyframe, _ := Keyframe(videoMimeType, rtpPacket)
+		if videoKeyframe {
+			// Keyframe has frame information.
+			width, height := keyframeDimensions(videoMimeType, rtpPacket)
 
 			if videoWriter == nil || audioWriter == nil {
 				// Initialize WebM saver using received frame size.
@@ -612,6 +652,8 @@ func main() {
 				case webrtc.RTPCodecTypeVideo:
 					if track.Codec().Name == "H264" {
 						pushH264(rtp)
+					} else if track.Codec().Name == "AV1" {
+						pushAV1(rtp)
 					} else if track.Codec().Name == "VP9" {
 						pushVP9(rtp)
 					} else if track.Codec().Name == "VP8" {
